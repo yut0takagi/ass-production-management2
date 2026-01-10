@@ -1,0 +1,75 @@
+name: Convert docs to PDF
+
+on:
+  push:
+    paths:
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pandoc and LaTeX (with CJK fonts)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pandoc \
+            texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended \
+            texlive-xetex texlive-lang-cjk fonts-noto-cjk
+
+      - name: Convert DOCX to PDF
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          converted=0
+          for f in docs/**/*.docx; do
+            [[ -e "$f" ]] || continue
+            base="$(basename "$f")"
+            # Skip Office temporary lock files
+            if [[ "$base" == ~\$* ]]; then
+              continue
+            fi
+            out="${f%.docx}.pdf"
+            echo "Converting $f -> $out"
+            pandoc "$f" -o "$out" --pdf-engine=xelatex -V mainfont='Noto Serif CJK JP'
+            converted=$((converted+1))
+          done
+          echo "DOCX converted: $converted"
+
+      - name: Convert Markdown to PDF
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          converted=0
+          for f in docs/**/*.md; do
+            [[ -e "$f" ]] || continue
+            out="${f%.md}.pdf"
+            echo "Converting $f -> $out"
+            pandoc "$f" -o "$out" --pdf-engine=xelatex -V mainfont='Noto Serif CJK JP' -V geometry:margin=20mm
+            converted=$((converted+1))
+          done
+          echo "Markdown converted: $converted"
+
+      - name: Upload PDFs as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-pdf
+          path: |
+            docs/**/*.pdf
+          if-no-files-found: ignore
+
+      - name: Auto-commit generated PDFs
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(docs): auto-generate PDFs"
+          file_pattern: docs/**/*.pdf
